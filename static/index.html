@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flying Balls</title>
+    <link rel="stylesheet" href="/static/styles.css">
+
+</head>
+<body>
+    <div id="ui">
+    <div id="desc">Loading problem...</div>
+    <div style="margin-top:8px;">
+        <label>Type:
+        <select id="qtype">
+            <option value="displacement">Displacement (y)</option>
+            <option value="velocity">Velocity (y)</option>
+        </select>
+        </label>
+    </div>
+    <div style="margin-top:6px;">
+        <label>Answer: <input id="answer" type="number" step="0.1"></label>
+        <button id="submit">Check</button>
+    </div>
+    <div id="message"></div>
+    <div style="margin-top:8px;">
+        <button id="play">Play Simulation</button>
+    </div>
+    </div>
+    <script type="module" src="/static/js/main.js"></script>
+</body>
+</html>
