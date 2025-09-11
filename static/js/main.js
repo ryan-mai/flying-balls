@@ -15,6 +15,31 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error(err);
         }
     }
-
+    async function checkAnswer() {
+        const input = document.getElementById('answer');
+        const value = input.value;
+        const qtype = document.getElementById('qtype').value;
+        if (value === '') {
+            document.getElementById('message').innerText = 'Enter an answer';
+            return;
+        }
+        try {
+            const res = await fetch('/api/check', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: problem.id, type: qtype, value: value }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Server error');
+            document.getElementById('message').innerText = data.is_correct
+                ? 'Correct'
+                : `Incorrect - Solution: ${Number(data.correct).toFixed(2)}`;
+        } catch (err) {
+            console.error(err);
+            document.getElementById('message').innerText = 'Check failed';
+     
+        }
+    }
+    document.getElementById('submit').addEventListener('click', checkAnswer);
     loadProblem();
 });
