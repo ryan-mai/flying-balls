@@ -5,7 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Flying Balls</title>
     <link rel="stylesheet" href="/static/styles.css">
-
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+        }
+    }
+    </script>
 </head>
 <body>
     <div id="ui">
@@ -27,6 +34,7 @@
         <button id="play">Play Simulation</button>
     </div>
     </div>
+
     <script type="module" src="/static/js/main.js"></script>
 </body>
 </html>
