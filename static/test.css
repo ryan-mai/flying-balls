@@ -1,9 +1,9 @@
 body {
-  font-size: 16pt;
+  height: 100%;
 }
 #c {
   float: left;
   padding: 5px;
-  width: 200px;
-  height: 150px;
+  width: 100vw;
+  height: 100vh;
 }

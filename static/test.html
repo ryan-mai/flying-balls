@@ -4,25 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Document</title>
-    <script  type="importmap">
-    {
-        "imports": {
-            "three": "https://threejs.org/build/three.module.js"
-        }
-    }
-    </script>
+    <link rel="stylesheet" href="test.css">
 </head>
 <body>
-    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.  Donec laoreet
-maximus metus, a interdum massa faucibus id.  Pellentesque in mauris elit.
-Vestibulum quis consectetur nisi. <canvas id="c"></canvas> Nulla pellentesque, sapien in
-condimentum ullamcorper, mi nisl sollicitudin felis, a ullamcorper sapien
-dui vel metus.  Nam augue nisi, elementum id diam vel, blandit imperdiet
-nunc.  Vivamus facilisis imperdiet neque id porttitor.  Mauris sapien
-felis, mollis tempus orci vitae, sollicitudin varius augue.  Nullam non
-magna id sem faucibus sollicitudin.  Proin nunc mi, rutrum et elementum
-ut, auctor eget massa.
-</p>
+<canvas id="c"></canvas>
+<script src="jsm/libs/ammo.wasm.js"></script>
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+    }
+}
+</script>
 <script type="module" src="./js/test.js"></script>
 </body>
 </html>
