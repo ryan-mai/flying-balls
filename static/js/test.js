@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 
 import Stats from 'three/addons/libs/stats.module.js';
-
+import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
 // Graphics variables
-let container, stats;
+let container, stats, gui;
 let camera, controls, scene, renderer;
 let textureLoader;
 const clock = new THREE.Clock();
@@ -77,14 +77,11 @@ function init() {
 
     initInput();
 
-    // Start render loop after everything (graphics + physics) is initialized
     if ( renderer ) renderer.setAnimationLoop( animate );
 
 }
 
 function initGraphics() {
-
-    // Use the existing canvas if present; else fallback to body
     const canvasEl = document.querySelector( '#c' );
     container = canvasEl || document.body;
 
@@ -95,7 +92,6 @@ function initGraphics() {
 
     camera.position.set( - 7, 5, 8 );
 
-    // If a canvas exists, render into it; otherwise create one and append to body
     if ( canvasEl ) {
         renderer = new THREE.WebGLRenderer( { antialias: true, canvas: canvasEl } );
     } else {
@@ -132,8 +128,11 @@ function initGraphics() {
     stats = new Stats();
     stats.domElement.style.position = 'absolute';
     stats.domElement.style.top = '0px';
-    // If using a canvas, append stats to body so it’s visible
-    (canvasEl ? document.body : container).appendChild( stats.domElement );
+
+	gui = new GUI();
+
+
+	(canvasEl ? document.body : container).appendChild( stats.domElement );
 
     window.addEventListener( 'resize', onWindowResize );
 
@@ -186,9 +185,69 @@ function createObjects() {
 	const boxGeometry = new THREE.BoxGeometry( 1, 1, 5, 4, 4, 20 );
 	boxGeometry.translate( - 2, 5, 0 );
 	createSoftVolume( boxGeometry, volumeMass, 120 );
+	
+    const outer = new THREE.Shape();
+    outer.moveTo( -2, -1 );
+    outer.lineTo( 2, -1 );
+    outer.lineTo( 2, 1 );
+    outer.lineTo( -2, 1 );
+    outer.lineTo( -2, -1 );
 
+	const holeRadius = 0.45;
+	const hole = new THREE.Path();
+	hole.absarc( 0, 0, holeRadius, 0, Math.PI * 2, false );
+	outer.holes.push(hole);
+
+    const extrusionSettings = { depth: 0.8, bevelEnabled: false, curveSegments: 16 };
+    const extrudeGeom = new THREE.ExtrudeGeometry( outer, extrusionSettings );
+    extrudeGeom.computeVertexNormals();
+
+    extrudeGeom.computeBoundingBox();
+    const bb = extrudeGeom.boundingBox;
+    const cx = 0.5 * ( bb.min.x + bb.max.x );
+    const cy = 0.5 * ( bb.min.y + bb.max.y );
+    const cz = 0.5 * ( bb.min.z + bb.max.z );
+    extrudeGeom.translate( -cx, -cy, -cz );
+
+    const extrudeMesh = new THREE.Mesh( extrudeGeom, new THREE.MeshPhongMaterial( { color: 0x8888aa } ) );
+    extrudeMesh.position.set( 0, 0.5, -6 ); // adjust placement as needed
+    extrudeMesh.castShadow = true;
+    extrudeMesh.receiveShadow = true;
+    scene.add( extrudeMesh );
+
+    // Build Ammo triangle mesh for static (concave) collision
+    const triangleMesh = new Ammo.btTriangleMesh();
+    const posAttr = extrudeGeom.attributes.position.array;
+    const indexAttr = extrudeGeom.index ? extrudeGeom.index.array : null;
+
+    const _v = ( x, y, z ) => new Ammo.btVector3( x, y, z );
+
+    if ( indexAttr ) {
+        for ( let i = 0; i < indexAttr.length; i += 3 ) {
+            const a = indexAttr[ i ] * 3;
+            const b = indexAttr[ i + 1 ] * 3;
+            const c = indexAttr[ i + 2 ] * 3;
+            const va = _v( posAttr[ a ], posAttr[ a + 1 ], posAttr[ a + 2 ] );
+            const vb = _v( posAttr[ b ], posAttr[ b + 1 ], posAttr[ b + 2 ] );
+            const vc = _v( posAttr[ c ], posAttr[ c + 1 ], posAttr[ c + 2 ] );
+            triangleMesh.addTriangle( va, vb, vc, true );
+        }
+    } else {
+        for ( let i = 0; i < posAttr.length; i += 9 ) {
+            const va = _v( posAttr[ i ], posAttr[ i + 1 ], posAttr[ i + 2 ] );
+            const vb = _v( posAttr[ i + 3 ], posAttr[ i + 4 ], posAttr[ i + 5 ] );
+            const vc = _v( posAttr[ i + 6 ], posAttr[ i + 7 ], posAttr[ i + 8 ] );
+            triangleMesh.addTriangle( va, vb, vc, true );
+        }
+    }
+
+    const triMeshShape = new Ammo.btBvhTriangleMeshShape( triangleMesh, true, true );
+    triMeshShape.setMargin( margin );
+
+    // Create static rigid body (mass = 0)
+    createRigidBody( extrudeMesh, triMeshShape, 0, extrudeMesh.position, extrudeMesh.quaternion );
 	// Ramp
-	pos.set( 3, 1, 0 );
+	pos.set( 3, 1.5, 0 );
 	quat.setFromAxisAngle( new THREE.Vector3( 0, 0, 1 ), 30 * Math.PI / 180 );
 	const obstacle = createParalellepiped( 10, 1, 4, 0, pos, quat, new THREE.MeshPhongMaterial( { color: 0x606060 } ) );
 	obstacle.castShadow = true;
@@ -312,6 +371,7 @@ function createSoftVolume( bufferGeom, mass, pressure ) {
 
 }
 
+
 function createParalellepiped( sx, sy, sz, mass, pos, quat, material ) {
 
 	const threeObject = new THREE.Mesh( new THREE.BoxGeometry( sx, sy, sz, 1, 1, 1 ), material );
@@ -385,13 +445,22 @@ function processClick() {
 
 		raycaster.setFromCamera( mouseCoords, camera );
 
-		// Creates a ball
 		const ballMass = 3;
 		const ballRadius = 0.4;
 
-		const ball = new THREE.Mesh( new THREE.SphereGeometry( ballRadius, 18, 16 ), ballMaterial );
-		ball.castShadow = true;
-		ball.receiveShadow = true;
+		const ballGeom = new THREE.IcosahedronGeometry( ballRadius, 3);
+		const ballMat = new THREE.MeshStandardMaterial( {
+						flatShading: true,
+						color: 0xFFFFFFF,
+						emissive: 0xFFFFFFF,
+						emissiveIntensity: 0.35,
+
+						polygonOffset: true,
+						polygonOffsetUnits: 1,
+						polygonOffsetFactor: 1,
+
+					} )
+		const ball = new THREE.Mesh( ballGeom, ballMat );
 		const ballShape = new Ammo.btSphereShape( ballRadius );
 		ballShape.setMargin( margin );
 		pos.copy( raycaster.ray.direction );
