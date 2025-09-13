@@ -1,166 +1,513 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
 import Stats from 'three/addons/libs/stats.module.js';
+
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
+// Graphics variables
 let container, stats;
 let camera, controls, scene, renderer;
 let textureLoader;
 const clock = new THREE.Clock();
-let clickReq = false;
-const mouseCord = new THREE.Vector2();
+let clickRequest = false;
+const mouseCoords = new THREE.Vector2();
+const raycaster = new THREE.Raycaster();
+const ballMaterial = new THREE.MeshPhongMaterial( { color: 0x202020 } );
+const pos = new THREE.Vector3();
+const quat = new THREE.Quaternion();
 
-function main() {
+// Physics variables
+const gravityConstant = - 9.8;
+let physicsWorld;
+const rigidBodies = [];
+const softBodies = [];
+const margin = 0.05;
+let transformAux1;
+let softBodyHelpers;
 
-	const canvas = document.querySelector( '#c' );
-	const renderer = new THREE.WebGLRenderer( { antialias: true, canvas } );
-	renderer.setPixelRatio( window.devicePixelRatio || 1 );
-    renderer.setSize( window.innerWidth, window.innerHeight, false );
-	const fov = 40;
-	const aspect = 2; // the canvas default
-	const near = 0.1;
-	const far = 1000;
+if ( typeof Ammo === 'function' ) {
 
-	const frustumSize = 100;
-	const aspectRatio = window.innerWidth / window.innerHeight
-	const camera = new THREE.OrthographicCamera(
-		-frustumSize * aspectRatio / 2,
-		frustumSize * aspectRatio / 2,
-		frustumSize / 2,
-		-frustumSize / 2,
-		near,
-		far
-	)
-	// const camera = new THREE.PerspectiveCamera( fov, aspect, near, far );
-	const controls = new OrbitControls(camera, renderer.domElement);
-	controls.enableDamping = true;
-	controls.dampingFactor = 0.08;
-	controls.minDistance = 2;
-	controls.maxDistance = 80;
-	controls.update();
-	camera.position.z = 120;
+    Ammo().then( function ( AmmoLib ) {
 
-	function orthoView(view, distance = 120) {
-		switch (view) {
-			case 'front':
-				camera.position.set(0, 0, distance);
-				camera.up.set(0, 1, 0);
-				break;
-			case 'top':
-				camera.position.set(0, distance, 0);
-				camera.up.set(0, 0, -1);
-				break;
-			case 'left':
-				camera.position.set(-distance, 0, 0);
-				camera.up.set(0, 1, 0);
-				break
-			default:
-				return;
-		}
-		controls.target.set(0, 0, 0);
-		controls.update();
-		camera.updateProjectionMatrix();
-	}
+        Ammo = AmmoLib;
+        init();
 
-	window.addEventListener('keydown', (e) => {
-		if (e.key == 'w') orthoView('top');
-		if (e.key == 'q') orthoView('front');
-		if (e.key == 'd') orthoView('left');
-	})
-	const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xAAAAAA);
-    const ambient = new THREE.AmbientLight(0x404040, 1.0);
-    scene.add(ambient);
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    dirLight.position.set(10, 10, 10);
-    scene.add(dirLight);
-    const objects = [];
-    const spread = 1;
-    function addObject(x, y, obj) {
-        obj.position.x = x * spread;
-        obj.position.y = y * spread;
+    } );
 
-        scene.add(obj);
-        objects.push(obj)
-    }
+} else if ( typeof Ammo === 'object' && Ammo !== null ) {
 
-	let stats = new Stats();
-	stats.domElement.style.position = 'absolute';
-	stats.domElement.style.top = '0px';
-	document.body.appendChild( stats.domElement );
-    function createMaterial(color) {
-        const material = new THREE.MeshPhongMaterial({
-            // side: THREE.DoubleSide,
-        });
-        const hue = Math.random();
-        const saturation = 1;
-        const luminance = 0.5;
-        material.color.setHSL(hue, saturation, luminance);
+    // Ammo already loaded synchronously (e.g. via <script>)
+    init();
 
-        return material;
-    }
-    
-    function addSolidGeometry(x, y, geometry, color) {
-        const mesh = new THREE.Mesh(geometry, createMaterial());
-        addObject(x, y, mesh)
-    }
-	const radius = 7;
-	const widthSegments = 24;
-	const heightSegments = 16;
-	const geometry = new THREE.SphereGeometry(radius, widthSegments, heightSegments);
-	addSolidGeometry(0, 0, geometry);
+} else {
 
-	function resizeRendererToDisplaySize( renderer ) {
+    // Poll for Ammo if it's injected asynchronously
+    const ammoInterval = setInterval( function () {
 
-		const canvas = renderer.domElement;
-		const width = canvas.clientWidth;
-		const height = canvas.clientHeight;
-		const needResize = canvas.width !== width || canvas.height !== height;
-		if ( needResize ) {
+        if ( typeof Ammo === 'function' ) {
 
-			renderer.setSize( width, height, false );
+            clearInterval( ammoInterval );
 
-		}
+            Ammo().then( function ( AmmoLib ) {
 
-		return needResize;
+                Ammo = AmmoLib;
+                init();
 
-	}
+            } );
 
-	function render( time ) {
+        } else if ( typeof Ammo === 'object' && Ammo !== null ) {
 
-		time *= 0.001;
+            clearInterval( ammoInterval );
+            init();
 
-		if ( resizeRendererToDisplaySize( renderer ) ) {
+        }
 
-			const canvas = renderer.domElement;
-			const aspect = canvas.clientWidth / canvas.clientHeight;
-
-			camera.left = -frustumSize * aspect / 2;
-			camera.right = frustumSize * aspect / 2;
-			camera.top =  frustumSize / 2;
-			camera.bottom = -frustumSize / 2;	
-			// camera.aspect = aspect;
-			camera.updateProjectionMatrix();
-
-		}
-
-		objects.forEach( ( obj, ndx ) => {
-
-			const speed = 1 + ndx * .1;
-			const rot = time * speed;
-			obj.rotation.x = rot;
-			obj.rotation.y = rot;
-
-		} );
-
-		renderer.render( scene, camera );
-
-		requestAnimationFrame( render );
-
-	}
-
-	requestAnimationFrame( render );
+    }, 50 );
 
 }
 
-main();
+function init() {
+
+    initGraphics();
+
+    initPhysics();
+
+    createObjects();
+
+    initInput();
+
+    // Start render loop after everything (graphics + physics) is initialized
+    if ( renderer ) renderer.setAnimationLoop( animate );
+
+}
+
+function initGraphics() {
+
+    // Use the existing canvas if present; else fallback to body
+    const canvasEl = document.querySelector( '#c' );
+    container = canvasEl || document.body;
+
+    camera = new THREE.PerspectiveCamera( 60, window.innerWidth / window.innerHeight, 0.2, 2000 );
+
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color( 0xbfd1e5 );
+
+    camera.position.set( - 7, 5, 8 );
+
+    // If a canvas exists, render into it; otherwise create one and append to body
+    if ( canvasEl ) {
+        renderer = new THREE.WebGLRenderer( { antialias: true, canvas: canvasEl } );
+    } else {
+        renderer = new THREE.WebGLRenderer( { antialias: true } );
+        document.body.appendChild( renderer.domElement );
+    }
+
+    renderer.setPixelRatio( window.devicePixelRatio );
+    renderer.setSize( window.innerWidth, window.innerHeight );
+    renderer.shadowMap.enabled = true;
+
+    controls = new OrbitControls( camera, renderer.domElement );
+    controls.target.set( 0, 2, 0 );
+    controls.update();
+
+    textureLoader = new THREE.TextureLoader();
+
+    const ambientLight = new THREE.AmbientLight( 0xbbbbbb );
+    scene.add( ambientLight );
+
+    const light = new THREE.DirectionalLight( 0xffffff, 3 );
+    light.position.set( - 10, 10, 5 );
+    light.castShadow = true;
+    const dist = 20;
+    light.shadow.camera.left = - dist;
+    light.shadow.camera.right = dist;
+    light.shadow.camera.top = dist;
+    light.shadow.camera.bottom = - dist;
+    light.shadow.camera.near = 2;
+    light.shadow.camera.far = 50;
+    light.shadow.mapSize.set( 1024, 1024 );
+    scene.add( light );
+
+    stats = new Stats();
+    stats.domElement.style.position = 'absolute';
+    stats.domElement.style.top = '0px';
+    // If using a canvas, append stats to body so it’s visible
+    (canvasEl ? document.body : container).appendChild( stats.domElement );
+
+    window.addEventListener( 'resize', onWindowResize );
+
+}
+
+function initPhysics() {
+
+	// Physics configuration
+
+	const collisionConfiguration = new Ammo.btSoftBodyRigidBodyCollisionConfiguration();
+	const dispatcher = new Ammo.btCollisionDispatcher( collisionConfiguration );
+	const broadphase = new Ammo.btDbvtBroadphase();
+	const solver = new Ammo.btSequentialImpulseConstraintSolver();
+	const softBodySolver = new Ammo.btDefaultSoftBodySolver();
+	physicsWorld = new Ammo.btSoftRigidDynamicsWorld( dispatcher, broadphase, solver, collisionConfiguration, softBodySolver );
+	physicsWorld.setGravity( new Ammo.btVector3( 0, gravityConstant, 0 ) );
+	physicsWorld.getWorldInfo().set_m_gravity( new Ammo.btVector3( 0, gravityConstant, 0 ) );
+
+	transformAux1 = new Ammo.btTransform();
+	softBodyHelpers = new Ammo.btSoftBodyHelpers();
+
+}
+
+function createObjects() {
+
+	// Ground
+	pos.set( 0, - 0.5, 0 );
+	quat.set( 0, 0, 0, 1 );
+	const ground = createParalellepiped( 40, 1, 40, 0, pos, quat, new THREE.MeshPhongMaterial( { color: 0xFFFFFF } ) );
+	ground.castShadow = true;
+	ground.receiveShadow = true;
+	textureLoader.load( 'textures/grid.png', function ( texture ) {
+
+		texture.colorSpace = THREE.SRGBColorSpace;
+		texture.wrapS = THREE.RepeatWrapping;
+		texture.wrapT = THREE.RepeatWrapping;
+		texture.repeat.set( 40, 40 );
+		ground.material.map = texture;
+		ground.material.needsUpdate = true;
+
+	} );
+
+	// Create soft volumes
+	const volumeMass = 15;
+
+	const sphereGeometry = new THREE.SphereGeometry( 1.5, 40, 25 );
+	sphereGeometry.translate( 5, 5, 0 );
+	createSoftVolume( sphereGeometry, volumeMass, 250 );
+
+	const boxGeometry = new THREE.BoxGeometry( 1, 1, 5, 4, 4, 20 );
+	boxGeometry.translate( - 2, 5, 0 );
+	createSoftVolume( boxGeometry, volumeMass, 120 );
+
+	// Ramp
+	pos.set( 3, 1, 0 );
+	quat.setFromAxisAngle( new THREE.Vector3( 0, 0, 1 ), 30 * Math.PI / 180 );
+	const obstacle = createParalellepiped( 10, 1, 4, 0, pos, quat, new THREE.MeshPhongMaterial( { color: 0x606060 } ) );
+	obstacle.castShadow = true;
+	obstacle.receiveShadow = true;
+
+}
+
+function processGeometry( bufGeometry ) {
+
+	// Ony consider the position values when merging the vertices
+	const posOnlyBufGeometry = new THREE.BufferGeometry();
+	posOnlyBufGeometry.setAttribute( 'position', bufGeometry.getAttribute( 'position' ) );
+	posOnlyBufGeometry.setIndex( bufGeometry.getIndex() );
+
+	// Merge the vertices so the triangle soup is converted to indexed triangles
+	const indexedBufferGeom = BufferGeometryUtils.mergeVertices( posOnlyBufGeometry );
+
+	// Create index arrays mapping the indexed vertices to bufGeometry vertices
+	mapIndices( bufGeometry, indexedBufferGeom );
+
+}
+
+function isEqual( x1, y1, z1, x2, y2, z2 ) {
+
+	const delta = 0.000001;
+	return Math.abs( x2 - x1 ) < delta &&
+			Math.abs( y2 - y1 ) < delta &&
+			Math.abs( z2 - z1 ) < delta;
+
+}
+
+function mapIndices( bufGeometry, indexedBufferGeom ) {
+
+	// Creates ammoVertices, ammoIndices and ammoIndexAssociation in bufGeometry
+
+	const vertices = bufGeometry.attributes.position.array;
+	const idxVertices = indexedBufferGeom.attributes.position.array;
+	const indices = indexedBufferGeom.index.array;
+
+	const numIdxVertices = idxVertices.length / 3;
+	const numVertices = vertices.length / 3;
+
+	bufGeometry.ammoVertices = idxVertices;
+	bufGeometry.ammoIndices = indices;
+	bufGeometry.ammoIndexAssociation = [];
+
+	for ( let i = 0; i < numIdxVertices; i ++ ) {
+
+		const association = [];
+		bufGeometry.ammoIndexAssociation.push( association );
+
+		const i3 = i * 3;
+
+		for ( let j = 0; j < numVertices; j ++ ) {
+
+			const j3 = j * 3;
+			if ( isEqual( idxVertices[ i3 ], idxVertices[ i3 + 1 ], idxVertices[ i3 + 2 ],
+				vertices[ j3 ], vertices[ j3 + 1 ], vertices[ j3 + 2 ] ) ) {
+
+				association.push( j3 );
+
+			}
+
+		}
+
+	}
+
+}
+
+function createSoftVolume( bufferGeom, mass, pressure ) {
+
+	processGeometry( bufferGeom );
+
+	const volume = new THREE.Mesh( bufferGeom, new THREE.MeshPhongMaterial( { color: 0xFFFFFF } ) );
+	volume.castShadow = true;
+	volume.receiveShadow = true;
+	volume.frustumCulled = false;
+	scene.add( volume );
+
+	textureLoader.load( 'textures/colors.png', function ( texture ) {
+
+		volume.material.map = texture;
+		volume.material.needsUpdate = true;
+
+	} );
+
+	// Volume physic object
+
+	const volumeSoftBody = softBodyHelpers.CreateFromTriMesh(
+		physicsWorld.getWorldInfo(),
+		bufferGeom.ammoVertices,
+		bufferGeom.ammoIndices,
+		bufferGeom.ammoIndices.length / 3,
+		true );
+
+	const sbConfig = volumeSoftBody.get_m_cfg();
+	sbConfig.set_viterations( 40 );
+	sbConfig.set_piterations( 40 );
+
+	// Soft-soft and soft-rigid collisions
+	sbConfig.set_collisions( 0x11 );
+
+	// Friction
+	sbConfig.set_kDF( 0.1 );
+	// Damping
+	sbConfig.set_kDP( 0.01 );
+	// Pressure
+	sbConfig.set_kPR( pressure );
+	// Stiffness
+	volumeSoftBody.get_m_materials().at( 0 ).set_m_kLST( 0.9 );
+	volumeSoftBody.get_m_materials().at( 0 ).set_m_kAST( 0.9 );
+
+	volumeSoftBody.setTotalMass( mass, false );
+	Ammo.castObject( volumeSoftBody, Ammo.btCollisionObject ).getCollisionShape().setMargin( margin );
+	physicsWorld.addSoftBody( volumeSoftBody, 1, - 1 );
+	volume.userData.physicsBody = volumeSoftBody;
+	// Disable deactivation
+	volumeSoftBody.setActivationState( 4 );
+
+	softBodies.push( volume );
+
+}
+
+function createParalellepiped( sx, sy, sz, mass, pos, quat, material ) {
+
+	const threeObject = new THREE.Mesh( new THREE.BoxGeometry( sx, sy, sz, 1, 1, 1 ), material );
+	const shape = new Ammo.btBoxShape( new Ammo.btVector3( sx * 0.5, sy * 0.5, sz * 0.5 ) );
+	shape.setMargin( margin );
+
+	createRigidBody( threeObject, shape, mass, pos, quat );
+
+	return threeObject;
+
+}
+
+function createRigidBody( threeObject, physicsShape, mass, pos, quat ) {
+
+	threeObject.position.copy( pos );
+	threeObject.quaternion.copy( quat );
+
+	const transform = new Ammo.btTransform();
+	transform.setIdentity();
+	transform.setOrigin( new Ammo.btVector3( pos.x, pos.y, pos.z ) );
+	transform.setRotation( new Ammo.btQuaternion( quat.x, quat.y, quat.z, quat.w ) );
+	const motionState = new Ammo.btDefaultMotionState( transform );
+
+	const localInertia = new Ammo.btVector3( 0, 0, 0 );
+	physicsShape.calculateLocalInertia( mass, localInertia );
+
+	const rbInfo = new Ammo.btRigidBodyConstructionInfo( mass, motionState, physicsShape, localInertia );
+	const body = new Ammo.btRigidBody( rbInfo );
+
+	threeObject.userData.physicsBody = body;
+
+	scene.add( threeObject );
+
+	if ( mass > 0 ) {
+
+		rigidBodies.push( threeObject );
+
+		// Disable deactivation
+		body.setActivationState( 4 );
+
+	}
+
+	physicsWorld.addRigidBody( body );
+
+	return body;
+
+}
+
+function initInput() {
+
+	window.addEventListener( 'pointerdown', function ( event ) {
+
+		if ( ! clickRequest ) {
+
+			mouseCoords.set(
+				( event.clientX / window.innerWidth ) * 2 - 1,
+				- ( event.clientY / window.innerHeight ) * 2 + 1
+			);
+
+			clickRequest = true;
+
+		}
+
+	} );
+
+}
+
+function processClick() {
+
+	if ( clickRequest ) {
+
+		raycaster.setFromCamera( mouseCoords, camera );
+
+		// Creates a ball
+		const ballMass = 3;
+		const ballRadius = 0.4;
+
+		const ball = new THREE.Mesh( new THREE.SphereGeometry( ballRadius, 18, 16 ), ballMaterial );
+		ball.castShadow = true;
+		ball.receiveShadow = true;
+		const ballShape = new Ammo.btSphereShape( ballRadius );
+		ballShape.setMargin( margin );
+		pos.copy( raycaster.ray.direction );
+		pos.add( raycaster.ray.origin );
+		quat.set( 0, 0, 0, 1 );
+		const ballBody = createRigidBody( ball, ballShape, ballMass, pos, quat );
+		ballBody.setFriction( 0.5 );
+
+		pos.copy( raycaster.ray.direction );
+		pos.multiplyScalar( 14 );
+		ballBody.setLinearVelocity( new Ammo.btVector3( pos.x, pos.y, pos.z ) );
+
+		clickRequest = false;
+
+	}
+
+}
+
+function onWindowResize() {
+
+	camera.aspect = window.innerWidth / window.innerHeight;
+	camera.updateProjectionMatrix();
+
+	renderer.setSize( window.innerWidth, window.innerHeight );
+
+}
+
+function animate() {
+
+	render();
+	stats.update();
+
+}
+
+function render() {
+
+	const deltaTime = clock.getDelta();
+
+	updatePhysics( deltaTime );
+
+	processClick();
+
+	renderer.render( scene, camera );
+
+}
+
+function updatePhysics( deltaTime ) {
+
+    // If physics world isn't ready, skip this frame
+    if ( !physicsWorld ) return;
+
+    // Step world
+    physicsWorld.stepSimulation( deltaTime, 10 );
+
+	// Update soft volumes
+	for ( let i = 0, il = softBodies.length; i < il; i ++ ) {
+
+		const volume = softBodies[ i ];
+		const geometry = volume.geometry;
+		const softBody = volume.userData.physicsBody;
+		const volumePositions = geometry.attributes.position.array;
+		const volumeNormals = geometry.attributes.normal.array;
+		const association = geometry.ammoIndexAssociation;
+		const numVerts = association.length;
+		const nodes = softBody.get_m_nodes();
+		for ( let j = 0; j < numVerts; j ++ ) {
+
+			const node = nodes.at( j );
+			const nodePos = node.get_m_x();
+			const x = nodePos.x();
+			const y = nodePos.y();
+			const z = nodePos.z();
+			const nodeNormal = node.get_m_n();
+			const nx = nodeNormal.x();
+			const ny = nodeNormal.y();
+			const nz = nodeNormal.z();
+
+			const assocVertex = association[ j ];
+
+			for ( let k = 0, kl = assocVertex.length; k < kl; k ++ ) {
+
+				let indexVertex = assocVertex[ k ];
+				volumePositions[ indexVertex ] = x;
+				volumeNormals[ indexVertex ] = nx;
+				indexVertex ++;
+				volumePositions[ indexVertex ] = y;
+				volumeNormals[ indexVertex ] = ny;
+				indexVertex ++;
+				volumePositions[ indexVertex ] = z;
+				volumeNormals[ indexVertex ] = nz;
+
+			}
+
+		}
+
+		geometry.attributes.position.needsUpdate = true;
+		geometry.attributes.normal.needsUpdate = true;
+
+	}
+
+	// Update rigid bodies
+	for ( let i = 0, il = rigidBodies.length; i < il; i ++ ) {
+
+		const objThree = rigidBodies[ i ];
+		const objPhys = objThree.userData.physicsBody;
+		const ms = objPhys.getMotionState();
+		if ( ms ) {
+
+			ms.getWorldTransform( transformAux1 );
+			const p = transformAux1.getOrigin();
+			const q = transformAux1.getRotation();
+			objThree.position.set( p.x(), p.y(), p.z() );
+			objThree.quaternion.set( q.x(), q.y(), q.z(), q.w() );
+
+		}
+
+	}
+
+}
