@@ -161,19 +161,19 @@ function createObjects() {
 	// Ground
 	pos.set( 0, - 0.5, 0 );
 	quat.set( 0, 0, 0, 1 );
-	const ground = createParalellepiped( 40, 1, 40, 0, pos, quat, new THREE.MeshPhongMaterial( { color: 0xFFFFFF } ) );
-	ground.castShadow = true;
-	ground.receiveShadow = true;
-	textureLoader.load( 'textures/grid.png', function ( texture ) {
+	// const ground = createParalellepiped( 40, 1, 40, 0, pos, quat, new THREE.MeshPhongMaterial( { color: 0xFFFFFF } ) );
+	// ground.castShadow = true;
+	// ground.receiveShadow = true;
+	// textureLoader.load( 'textures/grid.png', function ( texture ) {
 
-		texture.colorSpace = THREE.SRGBColorSpace;
-		texture.wrapS = THREE.RepeatWrapping;
-		texture.wrapT = THREE.RepeatWrapping;
-		texture.repeat.set( 40, 40 );
-		ground.material.map = texture;
-		ground.material.needsUpdate = true;
+	// 	texture.colorSpace = THREE.SRGBColorSpace;
+	// 	texture.wrapS = THREE.RepeatWrapping;
+	// 	texture.wrapT = THREE.RepeatWrapping;
+	// 	texture.repeat.set( 40, 40 );
+	// 	ground.material.map = texture;
+	// 	ground.material.needsUpdate = true;
 
-	} );
+	// } );
 
 	// Create soft volumes
 	const volumeMass = 15;
@@ -186,39 +186,52 @@ function createObjects() {
 	boxGeometry.translate( - 2, 5, 0 );
 	createSoftVolume( boxGeometry, volumeMass, 120 );
 	
+	pos.set( 0, -0.5, 0 );
+	quat.set( 0, 0, 0, 1);
     const outer = new THREE.Shape();
-    outer.moveTo( -2, -1 );
-    outer.lineTo( 2, -1 );
-    outer.lineTo( 2, 1 );
-    outer.lineTo( -2, 1 );
-    outer.lineTo( -2, -1 );
+    outer.moveTo( -20, -20 );
+    outer.lineTo( 20, -20 );
+    outer.lineTo( 20, 20 );
+    outer.lineTo( -20, 20 );
+	outer.closePath();
 
 	const holeRadius = 0.45;
 	const hole = new THREE.Path();
-	hole.absarc( 0, 0, holeRadius, 0, Math.PI * 2, false );
+	const holeCenterX = -7.5;
+	const holeCenterY = -7.5;
+	hole.absarc( holeCenterX, holeCenterY, holeRadius, 0, Math.PI * 2, false );
 	outer.holes.push(hole);
 
-    const extrusionSettings = { depth: 0.8, bevelEnabled: false, curveSegments: 16 };
-    const extrudeGeom = new THREE.ExtrudeGeometry( outer, extrusionSettings );
-    extrudeGeom.computeVertexNormals();
+    const extrusionSettings = { depth: 1, bevelEnabled: false, curveSegments: 24 };
+    const groundGeom = new THREE.ExtrudeGeometry( outer, extrusionSettings );
+    groundGeom.computeVertexNormals();
+    groundGeom.computeBoundingBox();
 
-    extrudeGeom.computeBoundingBox();
-    const bb = extrudeGeom.boundingBox;
-    const cx = 0.5 * ( bb.min.x + bb.max.x );
-    const cy = 0.5 * ( bb.min.y + bb.max.y );
-    const cz = 0.5 * ( bb.min.z + bb.max.z );
-    extrudeGeom.translate( -cx, -cy, -cz );
 
-    const extrudeMesh = new THREE.Mesh( extrudeGeom, new THREE.MeshPhongMaterial( { color: 0x8888aa } ) );
-    extrudeMesh.position.set( 0, 0.5, -6 ); // adjust placement as needed
-    extrudeMesh.castShadow = true;
-    extrudeMesh.receiveShadow = true;
-    scene.add( extrudeMesh );
+	const groundMat = new THREE.MeshPhongMaterial( { color: 0xFFFFFFF } );
+	const ground = new THREE.Mesh( groundGeom, groundMat );
+    ground.castShadow = true;
+	ground.receiveShadow = true;
+	ground.position.set( pos.x, pos.y, pos.z );
+	ground.rotation.set( Math.PI / 2, 0, 0 );
+    scene.add( ground );
 
-    // Build Ammo triangle mesh for static (concave) collision
+	textureLoader.load( 'textures/grid.png', function ( texture ) {
+		texture.colorSpace = THREE.SRGBColorSpace;
+		texture.wrapS = THREE.RepeatWrapping;
+		texture.wrapT = THREE.RepeatWrapping;
+		const bb = groundGeom.boundingBox;
+		const width = bb.max.x - bb.min.x;
+		const height = bb.max.y - bb.min.y;
+		const tileSize = 40;
+		texture.repeat.set( Math.max(1, width / tileSize), Math.max(1, height / tileSize) );
+		ground.material.map = texture;
+		ground.material.needsUpdate = true;
+	} );
+
     const triangleMesh = new Ammo.btTriangleMesh();
-    const posAttr = extrudeGeom.attributes.position.array;
-    const indexAttr = extrudeGeom.index ? extrudeGeom.index.array : null;
+    const posAttr = groundGeom.attributes.position.array;
+    const indexAttr = groundGeom.index ? groundGeom.index.array : null;
 
     const _v = ( x, y, z ) => new Ammo.btVector3( x, y, z );
 
@@ -244,8 +257,9 @@ function createObjects() {
     const triMeshShape = new Ammo.btBvhTriangleMeshShape( triangleMesh, true, true );
     triMeshShape.setMargin( margin );
 
-    // Create static rigid body (mass = 0)
-    createRigidBody( extrudeMesh, triMeshShape, 0, extrudeMesh.position, extrudeMesh.quaternion );
+	const groundBody = createRigidBody( ground, triMeshShape, 0, ground.position, ground.quaternion );
+	groundBody.setFriction( 1.0 );
+	groundBody.setRollingFriction( 1.0 );
 	// Ramp
 	pos.set( 3, 1.5, 0 );
 	quat.setFromAxisAngle( new THREE.Vector3( 0, 0, 1 ), 30 * Math.PI / 180 );
@@ -262,17 +276,15 @@ function processGeometry( bufGeometry ) {
 	posOnlyBufGeometry.setAttribute( 'position', bufGeometry.getAttribute( 'position' ) );
 	posOnlyBufGeometry.setIndex( bufGeometry.getIndex() );
 
-	// Merge the vertices so the triangle soup is converted to indexed triangles
 	const indexedBufferGeom = BufferGeometryUtils.mergeVertices( posOnlyBufGeometry );
 
-	// Create index arrays mapping the indexed vertices to bufGeometry vertices
 	mapIndices( bufGeometry, indexedBufferGeom );
 
 }
 
 function isEqual( x1, y1, z1, x2, y2, z2 ) {
 
-	const delta = 0.000001;
+	const delta = 0.001;
 	return Math.abs( x2 - x1 ) < delta &&
 			Math.abs( y2 - y1 ) < delta &&
 			Math.abs( z2 - z1 ) < delta;
@@ -410,7 +422,8 @@ function createRigidBody( threeObject, physicsShape, mass, pos, quat ) {
 		rigidBodies.push( threeObject );
 
 		// Disable deactivation
-		body.setActivationState( 4 );
+		body.setActivationState( 1 );
+		body.setSleepingThresholds( 0.1, 0.1 );
 
 	}
 
@@ -463,16 +476,21 @@ function processClick() {
 		const ball = new THREE.Mesh( ballGeom, ballMat );
 		const ballShape = new Ammo.btSphereShape( ballRadius );
 		ballShape.setMargin( margin );
+
 		pos.copy( raycaster.ray.direction );
 		pos.add( raycaster.ray.origin );
 		quat.set( 0, 0, 0, 1 );
 		const ballBody = createRigidBody( ball, ballShape, ballMass, pos, quat );
-		ballBody.setFriction( 0.5 );
-
+		ballBody.setFriction( 0.1 );
+		ballBody.setRestitution( 0.2 );
+		if ( typeof ballBody.setRollingFriction === 'function' ) ballBody.setRollingFriction( 0.01 );
+        if ( typeof ballBody.setSpinningFriction === 'function' ) ballBody.setSpinningFriction( 0.01 );
+		ballBody.setDamping( 0.03, 0.6 );
+		ballBody.setSleepingThresholds( 0.1, 0.1 );
+		ballBody.setActivationState( 1 );
 		pos.copy( raycaster.ray.direction );
-		pos.multiplyScalar( 14 );
+		pos.multiplyScalar( 2 );
 		ballBody.setLinearVelocity( new Ammo.btVector3( pos.x, pos.y, pos.z ) );
-
 		clickRequest = false;
 
 	}
