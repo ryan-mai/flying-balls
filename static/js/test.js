@@ -17,6 +17,19 @@ const ballMaterial = new THREE.MeshPhongMaterial( { color: 0x202020 } );
 const pos = new THREE.Vector3();
 const quat = new THREE.Quaternion();
 
+let groundMesh = null;
+const holeInfo = { center: new THREE.Vector2(), radius: 0, topY: 0 };
+
+const ballRadius = 0.4;
+const ballMass = 4.593;
+const playerOrigin = new THREE.Vector3( 0, 0, 0 );
+const obstacles = [];
+const params = { 
+	power: 10,
+	angleDeg: 0,
+	elevationDeg: 5
+}
+
 // Physics variables
 const gravityConstant = - 9.8;
 let physicsWorld;
@@ -129,9 +142,6 @@ function initGraphics() {
     stats.domElement.style.position = 'absolute';
     stats.domElement.style.top = '0px';
 
-	gui = new GUI();
-
-
 	(canvasEl ? document.body : container).appendChild( stats.domElement );
 
     window.addEventListener( 'resize', onWindowResize );
@@ -178,13 +188,13 @@ function createObjects() {
 	// Create soft volumes
 	const volumeMass = 15;
 
-	const sphereGeometry = new THREE.SphereGeometry( 1.5, 40, 25 );
-	sphereGeometry.translate( 5, 5, 0 );
-	createSoftVolume( sphereGeometry, volumeMass, 250 );
+	// const sphereGeometry = new THREE.SphereGeometry( 1.5, 40, 25 );
+	// sphereGeometry.translate( 5, 5, 0 );
+	// createSoftVolume( sphereGeometry, volumeMass, 250 );
 
 	const boxGeometry = new THREE.BoxGeometry( 1, 1, 5, 4, 4, 20 );
 	boxGeometry.translate( - 2, 5, 0 );
-	createSoftVolume( boxGeometry, volumeMass, 120 );
+	createSoftVolume( boxGeometry, 0, 120 );
 	
 	pos.set( 0, -0.5, 0 );
 	quat.set( 0, 0, 0, 1);
@@ -197,12 +207,20 @@ function createObjects() {
 
 	const holeRadius = 0.45;
 	const hole = new THREE.Path();
-	const holeCenterX = -7.5;
-	const holeCenterY = -7.5;
+	const holeOffsetX = 7.5;
+	const holeOffsetY = 7.5;
+	const max = 10
+	const min = -25
+	const holeCenterX = Math.floor(Math.random() * (max - min) + min) + holeOffsetX;
+	const holeCenterY = Math.floor(Math.random() * (max - min) + min) + holeOffsetY;
+
 	hole.absarc( holeCenterX, holeCenterY, holeRadius, 0, Math.PI * 2, false );
 	outer.holes.push(hole);
 
-    const extrusionSettings = { depth: 1, bevelEnabled: false, curveSegments: 24 };
+	holeInfo.radius = holeRadius;
+    holeInfo.center.set( holeCenterX, holeCenterY );
+
+	const extrusionSettings = { depth: 1, bevelEnabled: false, curveSegments: 24 };
     const groundGeom = new THREE.ExtrudeGeometry( outer, extrusionSettings );
     groundGeom.computeVertexNormals();
     groundGeom.computeBoundingBox();
@@ -215,6 +233,29 @@ function createObjects() {
 	ground.position.set( pos.x, pos.y, pos.z );
 	ground.rotation.set( Math.PI / 2, 0, 0 );
     scene.add( ground );
+
+	groundMesh = ground;
+	holeInfo.topY = new THREE.Box3().setFromObject( ground ).max.y;
+
+	playerOrigin.set( 0, holeInfo.topY + ballRadius + 0.02, 0 );
+
+	{
+		const marker = new THREE.Mesh(
+            new THREE.CylinderGeometry( 0.15, 0.15, 0.02, 20 ),
+            new THREE.MeshBasicMaterial( { color: 0xffcc00 } )
+		);
+		marker.position.set( playerOrigin.x, holeInfo.topY + 0.01, playerOrigin.z );
+		scene.add( marker );
+	}
+
+    const rectHeight = 2.5;
+    const rectGeometry = new THREE.BoxGeometry( 0.2, rectHeight, 0.2, 1, 1, 1 );
+    const rectMat = new THREE.MeshPhongMaterial( { color: 0xDAA06D } );
+    const rectMesh = new THREE.Mesh( rectGeometry, rectMat );
+    // rectMesh.castShadow = true;
+    rectMesh.receiveShadow = true;
+    rectMesh.position.set( holeCenterX, holeInfo.topY + rectHeight * 0.75, holeCenterY );
+    scene.add( rectMesh );
 
 	textureLoader.load( 'textures/grid.png', function ( texture ) {
 		texture.colorSpace = THREE.SRGBColorSpace;
@@ -255,18 +296,74 @@ function createObjects() {
     }
 
     const triMeshShape = new Ammo.btBvhTriangleMeshShape( triangleMesh, true, true );
-    triMeshShape.setMargin( margin );
+    triMeshShape.setMargin( 0 );
 
 	const groundBody = createRigidBody( ground, triMeshShape, 0, ground.position, ground.quaternion );
 	groundBody.setFriction( 1.0 );
 	groundBody.setRollingFriction( 1.0 );
 	// Ramp
-	pos.set( 3, 1.5, 0 );
-	quat.setFromAxisAngle( new THREE.Vector3( 0, 0, 1 ), 30 * Math.PI / 180 );
-	const obstacle = createParalellepiped( 10, 1, 4, 0, pos, quat, new THREE.MeshPhongMaterial( { color: 0x606060 } ) );
-	obstacle.castShadow = true;
-	obstacle.receiveShadow = true;
+	// pos.set( 3, 1.5, 0 );
+	// quat.setFromAxisAngle( new THREE.Vector3( 0, 0, 1 ), 30 * Math.PI / 180 );
+	// const obstacle = createParalellepiped( 10, 1, 4, 0, pos, quat, new THREE.MeshPhongMaterial( { color: 0x606060 } ) );
+	// obstacle.castShadow = true;
+	// obstacle.receiveShadow = true;
 
+	gui = new GUI();
+    const playerFolder = gui.addFolder( 'Player' );
+    playerFolder.add( params, 'power', 0, 50, 0.1 );
+    playerFolder.add( params, 'angleDeg', -360, 360, 1 );
+    playerFolder.add( params, 'elevationDeg', -180, 180, 1 );
+
+    const courseFolder = gui.addFolder( 'Course' );
+    courseFolder.add( { add: () => addWallAcrossHole( 0.5, 6, 1, 0.3 ) }, 'add' ).name( 'Add wall across hole' );
+    courseFolder.add( { clear: clearWalls }, 'clear' ).name( 'Clear obstacles' )
+}
+
+function createWalls( x1, z1, x2, z2, height = 1, depth = 0.3 ) {
+	const dx = x2 - x1;
+	const dz = z2 - z1;
+	const len = Math.max( 0.01, Math.hypot( dx, dz ) );
+
+	const cx = ( x1 + x2 ) * 0.5;
+	const cz = ( z1 + z2 ) * 0.5;
+
+	const angY = Math.atan2( dx, dz)
+
+	const pos = new THREE.Vector3( cx, holeInfo.topY + height * 0.5, cz );
+	const quat = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), angY );
+
+	const wallMat = new THREE.MeshPhongMaterial( { color: 0x8B4513 } );
+	const wall = createParalellepiped( len, height, depth, 0, pos, quat, wallMat );
+	if ( body ) {
+		body.setFriction( 1.0 );
+		body.setRollingFriction( 1.0 );
+	}
+	obstacles.push( wall );
+	return wall;
+}
+
+function addWalls( t = 0.5, amount = 6, height = 1, depth = 0.3) {
+	const cx = 0, cz = 0;
+	const hx = holeInfo.center.x, hz = holeInfo.center.y;
+
+	const mx = THREE.MathUtils.lerp( cx, hx, t );
+	const mz = THREE.MathUtils.lerp( cz, hz, t );
+
+	const dir = new THREE.Vector2( hx - cx, hz - cz ).normalize();
+	const perp = new THREE.Vector2( -dir.y, dir.x );
+
+	const half = amount / 2;
+	const p1 = new THREE.Vector2( mx, mz ).addScaledVector( perp, -half );
+	const p2 = new THREE.Vector2( mx, mz ).addScaledVector( perp, half );
+
+	return addWalls( p1.x, p1.y, p2.x, p2.y, height, depth)
+}
+
+function clearWalls() {
+	for ( let i = obstacles.length - 1; i >= 0; i -- ) {
+		removeRigidBodyObject( objects[ i ]);
+		obstacles.splice( i, 1 );
+	}
 }
 
 function processGeometry( bufGeometry ) {
@@ -421,7 +518,6 @@ function createRigidBody( threeObject, physicsShape, mass, pos, quat ) {
 
 		rigidBodies.push( threeObject );
 
-		// Disable deactivation
 		body.setActivationState( 1 );
 		body.setSleepingThresholds( 0.1, 0.1 );
 
@@ -435,7 +531,7 @@ function createRigidBody( threeObject, physicsShape, mass, pos, quat ) {
 
 function initInput() {
 
-	window.addEventListener( 'pointerdown', function ( event ) {
+	window.addEventListener( 'click', function ( event ) {
 
 		if ( ! clickRequest ) {
 
@@ -455,46 +551,141 @@ function initInput() {
 function processClick() {
 
 	if ( clickRequest ) {
+        const ballMass = 4.593;
+        const ballRadius = 0.4;
 
-		raycaster.setFromCamera( mouseCoords, camera );
+        const spawnPos = playerOrigin.clone();
 
-		const ballMass = 3;
-		const ballRadius = 0.4;
+        const ballGeom = new THREE.IcosahedronGeometry( ballRadius, 3 );
+        const ballMat = new THREE.MeshStandardMaterial( {
+            flatShading: true,
+            color: 0xFFFFFF,
+            emissive: 0x222222,
+            emissiveIntensity: 0.35,
+            polygonOffset: true,
+            polygonOffsetUnits: 1,
+            polygonOffsetFactor: 1,
+        } );
+        const ball = new THREE.Mesh( ballGeom, ballMat );
+        ball.userData.isBall = true;
+        ball.userData.radius = ballRadius;
 
-		const ballGeom = new THREE.IcosahedronGeometry( ballRadius, 3);
-		const ballMat = new THREE.MeshStandardMaterial( {
-						flatShading: true,
-						color: 0xFFFFFFF,
-						emissive: 0xFFFFFFF,
-						emissiveIntensity: 0.35,
+        const ballShape = new Ammo.btSphereShape( ballRadius );
+        ballShape.setMargin( margin );
 
-						polygonOffset: true,
-						polygonOffsetUnits: 1,
-						polygonOffsetFactor: 1,
+        const quat = new THREE.Quaternion().set( 0, 0, 0, 1 );
+        const ballBody = createRigidBody( ball, ballShape, ballMass, spawnPos, quat );
+        ballBody.setFriction( 0.1 );
+        ballBody.setDamping( 0.03, 0.6 );
+        ballBody.setSleepingThresholds( 0.1, 0.1 );
+        ballBody.setActivationState( 1 );
+        ballBody.setCcdMotionThreshold( ballRadius * 0.5 );
+        ballBody.setCcdSweptSphereRadius( ballRadius * 0.4 );
 
-					} )
-		const ball = new THREE.Mesh( ballGeom, ballMat );
-		const ballShape = new Ammo.btSphereShape( ballRadius );
-		ballShape.setMargin( margin );
+        const angY = THREE.MathUtils.degToRad( params.angleDeg ); 
+        const pitch = THREE.MathUtils.degToRad( params.elevationDeg );
+        const dir = new THREE.Vector3(
+            Math.sin( angY ) * Math.cos( pitch ),
+            Math.sin( pitch ),
+            - Math.cos( angY ) * Math.cos( pitch )
+        ).normalize();
 
-		pos.copy( raycaster.ray.direction );
-		pos.add( raycaster.ray.origin );
-		quat.set( 0, 0, 0, 1 );
-		const ballBody = createRigidBody( ball, ballShape, ballMass, pos, quat );
-		ballBody.setFriction( 0.1 );
-		ballBody.setRestitution( 0.2 );
-		if ( typeof ballBody.setRollingFriction === 'function' ) ballBody.setRollingFriction( 0.01 );
-        if ( typeof ballBody.setSpinningFriction === 'function' ) ballBody.setSpinningFriction( 0.01 );
-		ballBody.setDamping( 0.03, 0.6 );
-		ballBody.setSleepingThresholds( 0.1, 0.1 );
-		ballBody.setActivationState( 1 );
-		pos.copy( raycaster.ray.direction );
-		pos.multiplyScalar( 2 );
-		ballBody.setLinearVelocity( new Ammo.btVector3( pos.x, pos.y, pos.z ) );
-		clickRequest = false;
+        const v = dir.multiplyScalar( params.power );
+        ballBody.setLinearVelocity( new Ammo.btVector3( v.x, v.y, v.z ) );
+
+        clickRequest = false;
 
 	}
 
+}
+
+function checkBallInHole() {
+	if ( !groundMesh ) return;
+	const cx = holeInfo.center.x;
+	const cz = holeInfo.center.y;
+
+	for ( let i = rigidBodies.length - 1; i >= 0; i -- ) {
+		const obj = rigidBodies[ i ];
+		if ( !obj.userData.isBall || obj.userData.inHole ) continue;
+
+		const dx = obj.position.x - cx;
+		const dz = obj.position.z - cz;
+		const dist2 = dx * dx + dz * dz;
+
+		const margin = Math.max( 0.02, obj.userData.radius * 0.5 );
+		if ( dist2 <= Math.pow ( holeInfo.radius - margin, 2 ) &&
+			obj.position.y < holeInfo.topY - margin ) {
+				obj.userData.inHole = true;
+				onBallInHole ( obj );
+			}
+	}
+}
+
+function onBallInHole( ball ) {
+	console.log(`Ball ${ball.id} is in the hole! YAY!! ${ball}`);
+
+	setTimeout(() => {
+		const body = ball.userData.physicsBody;
+		if ( body && physicsWorld ) physicsWorld.removeRigidBody( body );
+		scene.remove( ball );
+
+		try {
+			ball.geometry.dispose();
+			ball.material.dispose();
+		} catch (err) { console.log(err) };
+
+		const idx  = rigidBodies.indexOf( ball );
+		if ( idx !== -1 ) rigidBodies.splice( idx, 1 );
+		if ( body ) {
+			const ms = body.getMotionState && body.getMotionState();
+			if ( ms ) Ammo.destroy( ms );
+			Ammo.destroy( body );
+		}
+	}, 300);
+}
+
+function removeRigidBodyObject( obj ) {
+    if ( !obj ) return;
+
+    const body = obj.userData.physicsBody;
+
+	if ( body && physicsWorld ) {
+        physicsWorld.removeRigidBody( body );
+    }
+
+    scene.remove( obj );
+
+	try {
+		if ( obj.geometry ) obj.geometry.dispose();
+		if ( obj.material ) {
+			if ( Array.isArray( obj.material ) ) {
+				obj.material.forEach( m => m.dispose && m.dispose() );
+			} else if ( obj.material.dispose ) {
+				obj.material.dispose();
+			}
+		}
+	} catch (err) { console.log(err); }
+
+    const idx = rigidBodies.indexOf( obj );
+    if ( idx !== -1 ) rigidBodies.splice( idx, 1 );
+
+    if ( body ) {
+        const ms = body.getMotionState && body.getMotionState();
+        if ( ms ) Ammo.destroy( ms );
+        try { Ammo.destroy( body ); } catch ( e ) { /* ignore */ }
+    }
+}
+function checkOutOfBounds() {
+	const maxY = -10;
+	for ( let i = rigidBodies.length - 1; i >= 0; i -- ) {
+		const obj = rigidBodies[ i ];
+		if ( !obj. userData.isBall ) continue;
+		if ( obj.userData.removed ) continue;
+		if ( obj.position.y < maxY ) {
+			obj.userData.removed = true;
+			removeRigidBodyObject( obj );
+		}
+	}
 }
 
 function onWindowResize() {
@@ -527,13 +718,10 @@ function render() {
 
 function updatePhysics( deltaTime ) {
 
-    // If physics world isn't ready, skip this frame
     if ( !physicsWorld ) return;
 
-    // Step world
-    physicsWorld.stepSimulation( deltaTime, 10 );
+    physicsWorld.stepSimulation( deltaTime, 10, 1 / 60 );
 
-	// Update soft volumes
 	for ( let i = 0, il = softBodies.length; i < il; i ++ ) {
 
 		const volume = softBodies[ i ];
@@ -579,7 +767,6 @@ function updatePhysics( deltaTime ) {
 
 	}
 
-	// Update rigid bodies
 	for ( let i = 0, il = rigidBodies.length; i < il; i ++ ) {
 
 		const objThree = rigidBodies[ i ];
@@ -596,5 +783,8 @@ function updatePhysics( deltaTime ) {
 		}
 
 	}
+	
+	checkOutOfBounds();
+	checkBallInHole();
 
 }
