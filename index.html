@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flying Balls</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&family=Open+Sans:ital,wght@0,300..800;1,300..800&family=Roboto:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="info">
+    Click "Shoot" and try to get a hole in one!<br/>
+    Configure your shots & the map with the control panel on the right 👉
+</div>
+<div id="container"></div>
+<div id="score">Score: 0</div>
+<!-- <script src="https://cdn.jsdelivr.net/npm/ammo-node@1.0.0/ammo.min.js"></script> -->
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/libs/ammo.wasm.js"></script>
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+    }
+}
+</script>
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>

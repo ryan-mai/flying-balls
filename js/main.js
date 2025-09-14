@@ -9,25 +9,28 @@ import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
 let container, stats, gui;
 let camera, controls, scene, renderer;
 let textureLoader;
+let btn;
 const clock = new THREE.Clock();
 let clickRequest = false;
 const mouseCoords = new THREE.Vector2();
-const raycaster = new THREE.Raycaster();
-const ballMaterial = new THREE.MeshPhongMaterial( { color: 0x202020 } );
+let score = 0;
+// const raycaster = new THREE.Raycaster();
+// const ballMaterial = new THREE.MeshPhongMaterial( { color: 0x202020 } );
 const pos = new THREE.Vector3();
 const quat = new THREE.Quaternion();
 
 let groundMesh = null;
 const holeInfo = { center: new THREE.Vector2(), radius: 0, topY: 0 };
-
+let groundBounds = null;
+let rectMesh; 
 const ballRadius = 0.4;
 const ballMass = 4.593;
 const playerOrigin = new THREE.Vector3( 0, 0, 0 );
 const obstacles = [];
 const params = { 
 	power: 10,
-	angleDeg: 0,
-	elevationDeg: 5
+	angle: 0,
+	elevation: 5
 }
 
 // Physics variables
@@ -39,6 +42,11 @@ const margin = 0.05;
 let transformAux1;
 let softBodyHelpers;
 
+
+const colGroup = 1;
+const colGroupBall = 1 << 1;
+const colGroupStatic = 1 << 2;
+
 if ( typeof Ammo === 'function' ) {
 
     Ammo().then( function ( AmmoLib ) {
@@ -49,13 +57,9 @@ if ( typeof Ammo === 'function' ) {
     } );
 
 } else if ( typeof Ammo === 'object' && Ammo !== null ) {
-
-    // Ammo already loaded synchronously (e.g. via <script>)
     init();
 
 } else {
-
-    // Poll for Ammo if it's injected asynchronously
     const ammoInterval = setInterval( function () {
 
         if ( typeof Ammo === 'function' ) {
@@ -95,8 +99,7 @@ function init() {
 }
 
 function initGraphics() {
-    const canvasEl = document.querySelector( '#c' );
-    container = canvasEl || document.body;
+    const container = document.getElementById( 'container' );
 
     camera = new THREE.PerspectiveCamera( 60, window.innerWidth / window.innerHeight, 0.2, 2000 );
 
@@ -105,17 +108,12 @@ function initGraphics() {
 
     camera.position.set( - 7, 5, 8 );
 
-    if ( canvasEl ) {
-        renderer = new THREE.WebGLRenderer( { antialias: true, canvas: canvasEl } );
-    } else {
-        renderer = new THREE.WebGLRenderer( { antialias: true } );
-        document.body.appendChild( renderer.domElement );
-    }
+    renderer = new THREE.WebGLRenderer( { antialias: true } );
 
     renderer.setPixelRatio( window.devicePixelRatio );
     renderer.setSize( window.innerWidth, window.innerHeight );
     renderer.shadowMap.enabled = true;
-
+	container.appendChild( renderer.domElement );
     controls = new OrbitControls( camera, renderer.domElement );
     controls.target.set( 0, 2, 0 );
     controls.update();
@@ -142,15 +140,36 @@ function initGraphics() {
     stats.domElement.style.position = 'absolute';
     stats.domElement.style.top = '0px';
 
-	(canvasEl ? document.body : container).appendChild( stats.domElement );
+	container.appendChild( stats.domElement );
 
     window.addEventListener( 'resize', onWindowResize );
+	btn = createShootBtn();
+    Object.assign(btn.style, {
+        position: 'fixed',
+        left: '50%',
+        bottom: '64px',
+        transform: 'translateX(-50%)',
+        padding: '28px 56px',
+        fontSize: '42px',
+		fontFamily: 'Roboto, Arial, sans-serif',
+        zIndex: 1000,
+        borderRadius: '8px',
+        border: 'none',
+        background: '#1e88e5',
+        color: '#fff',
+        cursor: 'pointer',
+    });
+    btn.addEventListener('click', shootBall);
+    document.body.appendChild(btn);
+}
 
+function createShootBtn() {
+	const b = document.createElement('button');
+	b.textContent = 'Shoot';
+	return b;
 }
 
 function initPhysics() {
-
-	// Physics configuration
 
 	const collisionConfiguration = new Ammo.btSoftBodyRigidBodyCollisionConfiguration();
 	const dispatcher = new Ammo.btCollisionDispatcher( collisionConfiguration );
@@ -192,9 +211,9 @@ function createObjects() {
 	// sphereGeometry.translate( 5, 5, 0 );
 	// createSoftVolume( sphereGeometry, volumeMass, 250 );
 
-	const boxGeometry = new THREE.BoxGeometry( 1, 1, 5, 4, 4, 20 );
-	boxGeometry.translate( - 2, 5, 0 );
-	createSoftVolume( boxGeometry, 0, 120 );
+	// const boxGeometry = new THREE.BoxGeometry( 1, 1, 5, 4, 4, 20 );
+	// boxGeometry.translate( - 2, 5, 0 );
+	// createSoftVolume( boxGeometry, 0, 120 );
 	
 	pos.set( 0, -0.5, 0 );
 	quat.set( 0, 0, 0, 1);
@@ -236,13 +255,13 @@ function createObjects() {
 
 	groundMesh = ground;
 	holeInfo.topY = new THREE.Box3().setFromObject( ground ).max.y;
-
+	groundBounds = new THREE.Box3().setFromObject( ground );
 	playerOrigin.set( 0, holeInfo.topY + ballRadius + 0.02, 0 );
 
 	{
 		const marker = new THREE.Mesh(
             new THREE.CylinderGeometry( 0.15, 0.15, 0.02, 20 ),
-            new THREE.MeshBasicMaterial( { color: 0xffcc00 } )
+            new THREE.MeshBasicMaterial( { color: 0xD22B2B } )
 		);
 		marker.position.set( playerOrigin.x, holeInfo.topY + 0.01, playerOrigin.z );
 		scene.add( marker );
@@ -250,14 +269,16 @@ function createObjects() {
 
     const rectHeight = 2.5;
     const rectGeometry = new THREE.BoxGeometry( 0.2, rectHeight, 0.2, 1, 1, 1 );
-    const rectMat = new THREE.MeshPhongMaterial( { color: 0xDAA06D } );
-    const rectMesh = new THREE.Mesh( rectGeometry, rectMat );
+    const rectMat = new THREE.MeshPhongMaterial( { color: 0x2E96FF } );
+    rectMesh = new THREE.Mesh( rectGeometry, rectMat );
     // rectMesh.castShadow = true;
     rectMesh.receiveShadow = true;
-    rectMesh.position.set( holeCenterX, holeInfo.topY + rectHeight * 0.75, holeCenterY );
-    scene.add( rectMesh );
+    rectMesh.position.set( holeCenterX, holeInfo.topY + rectHeight * 0.8, holeCenterY );
+	rectMesh.userData.baseY = rectMesh.position.y;
+    rectMesh.userData.bob = { amplitude: 0.35, speed: 2.0 };
+	scene.add( rectMesh );
 
-	textureLoader.load( 'textures/grid.png', function ( texture ) {
+	textureLoader.load( 'images/grid.png', function ( texture ) {
 		texture.colorSpace = THREE.SRGBColorSpace;
 		texture.wrapS = THREE.RepeatWrapping;
 		texture.wrapT = THREE.RepeatWrapping;
@@ -298,7 +319,15 @@ function createObjects() {
     const triMeshShape = new Ammo.btBvhTriangleMeshShape( triangleMesh, true, true );
     triMeshShape.setMargin( 0 );
 
-	const groundBody = createRigidBody( ground, triMeshShape, 0, ground.position, ground.quaternion );
+    const groundBody = createRigidBody(
+        ground,
+        triMeshShape,
+        0,
+        ground.position,
+        ground.quaternion,
+        colGroupStatic,
+        colGroupBall | colGroup // collide with balls (and any default)
+    );
 	groundBody.setFriction( 1.0 );
 	groundBody.setRollingFriction( 1.0 );
 	// Ramp
@@ -311,64 +340,129 @@ function createObjects() {
 	gui = new GUI();
     const playerFolder = gui.addFolder( 'Player' );
     playerFolder.add( params, 'power', 0, 50, 0.1 );
-    playerFolder.add( params, 'angleDeg', -360, 360, 1 );
-    playerFolder.add( params, 'elevationDeg', -180, 180, 1 );
+    playerFolder.add( params, 'angle', -360, 360, 1 );
+    playerFolder.add( params, 'elevation', -180, 180, 1 );
 
     const courseFolder = gui.addFolder( 'Course' );
-    courseFolder.add( { add: () => addWallAcrossHole( 0.5, 6, 1, 0.3 ) }, 'add' ).name( 'Add wall across hole' );
+	    const courseParams = {
+        count: 25,
+        minLen: 2,
+        maxLen: 8,
+        height: 1,
+        depth: 0.3,
+        edgePad: 0.5,
+        holeClear: 1.0,
+        centerClear: 1.5
+    };
+    courseFolder.add( courseParams, 'count', 1, 150, 1 );
+    courseFolder.add( courseParams, 'minLen', 0.5, 20, 0.1 );
+    courseFolder.add( courseParams, 'maxLen', 0.5, 20, 0.1 );
+    courseFolder.add( courseParams, 'height', 0.2, 3, 0.1 );
+    courseFolder.add( courseParams, 'depth', 0.1, 2, 0.05 );
+    courseFolder.add( courseParams, 'edgePad', 0, 2, 0.05 );
+    courseFolder.add( courseParams, 'holeClear', 1, 3, 0.05 );
+    courseFolder.add( courseParams, 'centerClear', 1, 3, 0.05 );
+    courseFolder.add( { random: () => { clearWalls(); addRandomWalls( courseParams.count, courseParams ); } }, 'random' ).name( 'Generate random obstacles' );
     courseFolder.add( { clear: clearWalls }, 'clear' ).name( 'Clear obstacles' )
+
 }
 
+function addRandomWalls( count = 10, opts = {} ) {
+    if ( !groundBounds ) return;
+    const {
+        minLen = 2, maxLen = 8,
+        height = 1, depth = 0.3,
+        edgePad = 0.5,
+        holeClear = 1.0,
+        centerClear = 1.5
+    } = opts;
+
+    const minX = groundBounds.min.x + edgePad;
+    const maxX = groundBounds.max.x - edgePad;
+    const minZ = groundBounds.min.z + edgePad;
+    const maxZ = groundBounds.max.z - edgePad;
+
+    const rand = (a,b)=>Math.random()*(b-a)+a;
+
+    let placed = 0, attempts = 0;
+    while ( placed < count && attempts < count * 10 ) {
+        attempts++;
+
+        const cx = rand( minX, maxX );
+        const cz = rand( minZ, maxZ );
+
+        const dHole = Math.hypot( cx - holeInfo.center.x, cz - holeInfo.center.y );
+        if ( dHole < holeInfo.radius + holeClear + depth ) continue;
+        const dTee = Math.hypot( cx - 0, cz - 0 );
+        if ( dTee < centerClear ) continue;
+
+        const len = rand( minLen, maxLen );
+        const half = len * 0.5;
+
+        let yaw;
+        if ( Math.random() < 0.5 ) {
+            yaw = rand( 0, Math.PI );
+        } else {
+            const dirX = holeInfo.center.x - cx;
+            const dirZ = holeInfo.center.y - cz;
+            const base = Math.atan2( dirX, dirZ );
+            yaw = base + Math.PI * 0.5;
+        }
+
+        const ex = Math.sin( yaw ) * half;
+        const ez = Math.cos( yaw ) * half;
+
+        let x1 = cx - ex, z1 = cz - ez;
+        let x2 = cx + ex, z2 = cz + ez;
+
+        x1 = Math.min( Math.max( x1, minX ), maxX );
+        x2 = Math.min( Math.max( x2, minX ), maxX );
+        z1 = Math.min( Math.max( z1, minZ ), maxZ );
+        z2 = Math.min( Math.max( z2, minZ ), maxZ );
+
+        if ( Math.hypot( x2 - x1, z2 - z1 ) < 0.75 ) continue;
+
+        createWalls( x1, z1, x2, z2, height, depth );
+        placed++;
+    }
+}
 function createWalls( x1, z1, x2, z2, height = 1, depth = 0.3 ) {
-	const dx = x2 - x1;
-	const dz = z2 - z1;
-	const len = Math.max( 0.01, Math.hypot( dx, dz ) );
+    const dx = x2 - x1;
+    const dz = z2 - z1;
+    const len = Math.max( 0.01, Math.hypot( dx, dz ) );
 
-	const cx = ( x1 + x2 ) * 0.5;
-	const cz = ( z1 + z2 ) * 0.5;
+    const cx = ( x1 + x2 ) * 0.5;
+    const cz = ( z1 + z2 ) * 0.5;
 
-	const angY = Math.atan2( dx, dz)
+    const angY = Math.atan2( dx, dz );
 
-	const pos = new THREE.Vector3( cx, holeInfo.topY + height * 0.5, cz );
-	const quat = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), angY );
+    const pos = new THREE.Vector3( cx, holeInfo.topY + height * 0.5, cz );
+    const quat = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), angY );
 
-	const wallMat = new THREE.MeshPhongMaterial( { color: 0x8B4513 } );
-	const wall = createParalellepiped( len, height, depth, 0, pos, quat, wallMat );
-	if ( body ) {
-		body.setFriction( 1.0 );
-		body.setRollingFriction( 1.0 );
-	}
-	obstacles.push( wall );
-	return wall;
-}
+    const wallMat = new THREE.MeshPhongMaterial( { color: 0x8B4513 } );
+    const wall = createParalellepiped(
+        len, height, depth, 0, pos, quat, wallMat,
+        colGroupStatic, colGroupBall | colGroup
+    );
+    const body = wall.userData.physicsBody;
+    if ( body ) {
+        body.setFriction( 1.0 );
+        body.setRollingFriction( 1.0 );
+    }
 
-function addWalls( t = 0.5, amount = 6, height = 1, depth = 0.3) {
-	const cx = 0, cz = 0;
-	const hx = holeInfo.center.x, hz = holeInfo.center.y;
-
-	const mx = THREE.MathUtils.lerp( cx, hx, t );
-	const mz = THREE.MathUtils.lerp( cz, hz, t );
-
-	const dir = new THREE.Vector2( hx - cx, hz - cz ).normalize();
-	const perp = new THREE.Vector2( -dir.y, dir.x );
-
-	const half = amount / 2;
-	const p1 = new THREE.Vector2( mx, mz ).addScaledVector( perp, -half );
-	const p2 = new THREE.Vector2( mx, mz ).addScaledVector( perp, half );
-
-	return addWalls( p1.x, p1.y, p2.x, p2.y, height, depth)
+    obstacles.push( wall );
+    return wall;
 }
 
 function clearWalls() {
-	for ( let i = obstacles.length - 1; i >= 0; i -- ) {
-		removeRigidBodyObject( objects[ i ]);
-		obstacles.splice( i, 1 );
-	}
+    for ( let i = obstacles.length - 1; i >= 0; i -- ) {
+        removeRigidBodyObject( obstacles[ i ] );
+        obstacles.splice( i, 1 );
+    }
 }
 
 function processGeometry( bufGeometry ) {
 
-	// Ony consider the position values when merging the vertices
 	const posOnlyBufGeometry = new THREE.BufferGeometry();
 	posOnlyBufGeometry.setAttribute( 'position', bufGeometry.getAttribute( 'position' ) );
 	posOnlyBufGeometry.setIndex( bufGeometry.getIndex() );
@@ -389,8 +483,6 @@ function isEqual( x1, y1, z1, x2, y2, z2 ) {
 }
 
 function mapIndices( bufGeometry, indexedBufferGeom ) {
-
-	// Creates ammoVertices, ammoIndices and ammoIndexAssociation in bufGeometry
 
 	const vertices = bufGeometry.attributes.position.array;
 	const idxVertices = indexedBufferGeom.attributes.position.array;
@@ -436,7 +528,7 @@ function createSoftVolume( bufferGeom, mass, pressure ) {
 	volume.frustumCulled = false;
 	scene.add( volume );
 
-	textureLoader.load( 'textures/colors.png', function ( texture ) {
+	textureLoader.load( 'images/colors.png', function ( texture ) {
 
 		volume.material.map = texture;
 		volume.material.needsUpdate = true;
@@ -481,19 +573,18 @@ function createSoftVolume( bufferGeom, mass, pressure ) {
 }
 
 
-function createParalellepiped( sx, sy, sz, mass, pos, quat, material ) {
-
+function createParalellepiped( sx, sy, sz, mass, pos, quat, material, group, mask ) {
 	const threeObject = new THREE.Mesh( new THREE.BoxGeometry( sx, sy, sz, 1, 1, 1 ), material );
 	const shape = new Ammo.btBoxShape( new Ammo.btVector3( sx * 0.5, sy * 0.5, sz * 0.5 ) );
 	shape.setMargin( margin );
 
-	createRigidBody( threeObject, shape, mass, pos, quat );
+	createRigidBody( threeObject, shape, mass, pos, quat, group, mask );
 
 	return threeObject;
 
 }
 
-function createRigidBody( threeObject, physicsShape, mass, pos, quat ) {
+function createRigidBody( threeObject, physicsShape, mass, pos, quat, group, mask ) {
 
 	threeObject.position.copy( pos );
 	threeObject.quaternion.copy( quat );
@@ -523,80 +614,87 @@ function createRigidBody( threeObject, physicsShape, mass, pos, quat ) {
 
 	}
 
-	physicsWorld.addRigidBody( body );
+	if ( group !== undefined && mask !== undefined ) {
+		physicsWorld.addRigidBody( body, group, mask );
+	} else {
+		physicsWorld.addRigidBody( body );
+	}
 
 	return body;
 
 }
 
 function initInput() {
+    window.addEventListener( 'mousemove', function ( event ) {
 
-	window.addEventListener( 'click', function ( event ) {
+        mouseCoords.set(
+            ( event.clientX / window.innerWidth ) * 2 - 1,
+            - ( event.clientY / window.innerHeight ) * 2 + 1
+        );
 
-		if ( ! clickRequest ) {
-
-			mouseCoords.set(
-				( event.clientX / window.innerWidth ) * 2 - 1,
-				- ( event.clientY / window.innerHeight ) * 2 + 1
-			);
-
-			clickRequest = true;
-
-		}
-
-	} );
+    }, false );
 
 }
 
 function processClick() {
 
 	if ( clickRequest ) {
-        const ballMass = 4.593;
-        const ballRadius = 0.4;
-
-        const spawnPos = playerOrigin.clone();
-
-        const ballGeom = new THREE.IcosahedronGeometry( ballRadius, 3 );
-        const ballMat = new THREE.MeshStandardMaterial( {
-            flatShading: true,
-            color: 0xFFFFFF,
-            emissive: 0x222222,
-            emissiveIntensity: 0.35,
-            polygonOffset: true,
-            polygonOffsetUnits: 1,
-            polygonOffsetFactor: 1,
-        } );
-        const ball = new THREE.Mesh( ballGeom, ballMat );
-        ball.userData.isBall = true;
-        ball.userData.radius = ballRadius;
-
-        const ballShape = new Ammo.btSphereShape( ballRadius );
-        ballShape.setMargin( margin );
-
-        const quat = new THREE.Quaternion().set( 0, 0, 0, 1 );
-        const ballBody = createRigidBody( ball, ballShape, ballMass, spawnPos, quat );
-        ballBody.setFriction( 0.1 );
-        ballBody.setDamping( 0.03, 0.6 );
-        ballBody.setSleepingThresholds( 0.1, 0.1 );
-        ballBody.setActivationState( 1 );
-        ballBody.setCcdMotionThreshold( ballRadius * 0.5 );
-        ballBody.setCcdSweptSphereRadius( ballRadius * 0.4 );
-
-        const angY = THREE.MathUtils.degToRad( params.angleDeg ); 
-        const pitch = THREE.MathUtils.degToRad( params.elevationDeg );
-        const dir = new THREE.Vector3(
-            Math.sin( angY ) * Math.cos( pitch ),
-            Math.sin( pitch ),
-            - Math.cos( angY ) * Math.cos( pitch )
-        ).normalize();
-
-        const v = dir.multiplyScalar( params.power );
-        ballBody.setLinearVelocity( new Ammo.btVector3( v.x, v.y, v.z ) );
-
-        clickRequest = false;
-
+		shootBall();
+		clickRequest = false;
 	}
 
+}
+
+function shootBall() {
+	const ballMass = 4.593;
+	const ballRadius = 0.4;
+
+	const spawnPos = playerOrigin.clone();
+
+	const ballGeom = new THREE.IcosahedronGeometry( ballRadius, 3 );
+	const ballMat = new THREE.MeshStandardMaterial( {
+		flatShading: true,
+		color: 0xFFFFFF,
+		emissive: 0x222222,
+		emissiveIntensity: 0.15,
+		polygonOffset: true,
+		polygonOffsetUnits: 1,
+		polygonOffsetFactor: 1,
+	} );
+	const ball = new THREE.Mesh( ballGeom, ballMat );
+	ball.userData.isBall = true;
+	ball.userData.radius = ballRadius;
+
+	const ballShape = new Ammo.btSphereShape( ballRadius );
+	ballShape.setMargin( margin );
+
+	const quat = new THREE.Quaternion().set( 0, 0, 0, 1 );
+    const ballBody = createRigidBody(
+        ball,
+        ballShape,
+        ballMass,
+        spawnPos,
+        quat,
+        colGroupBall,
+        colGroupStatic | colGroup
+    );
+	ballBody.setFriction( 0.1 );
+	ballBody.setDamping( 0.03, 0.6 );
+	ballBody.setSleepingThresholds( 0.1, 0.1 );
+	ballBody.setActivationState( 1 );
+	ballBody.setCcdMotionThreshold( ballRadius * 0.5 );
+	ballBody.setCcdSweptSphereRadius( ballRadius * 0.4 );
+
+	const angY = THREE.MathUtils.degToRad( params.angle ); 
+	const pitch = THREE.MathUtils.degToRad( params.elevation );
+	const dir = new THREE.Vector3(
+		Math.sin( angY ) * Math.cos( pitch ),
+		Math.sin( pitch ),
+		- Math.cos( angY ) * Math.cos( pitch )
+	).normalize();
+
+	const v = dir.multiplyScalar( params.power );
+	ballBody.setLinearVelocity( new Ammo.btVector3( v.x, v.y, v.z ) );
 }
 
 function checkBallInHole() {
@@ -622,8 +720,10 @@ function checkBallInHole() {
 }
 
 function onBallInHole( ball ) {
-	console.log(`Ball ${ball.id} is in the hole! YAY!! ${ball}`);
-
+	score += 1;
+	console.log(`Ball ${ball.id} is in the hole! YAY!! > ${score}`);
+	const scoreDiv = document.getElementById('score')
+	scoreDiv.textContent = `Score: ${score}`;
 	setTimeout(() => {
 		const body = ball.userData.physicsBody;
 		if ( body && physicsWorld ) physicsWorld.removeRigidBody( body );
@@ -641,7 +741,40 @@ function onBallInHole( ball ) {
 			if ( ms ) Ammo.destroy( ms );
 			Ammo.destroy( body );
 		}
+		resetGame();
 	}, 300);
+}
+
+function resetGame() {
+	clearWalls();
+	for ( let i = rigidBodies.length - 1; i >= 0; i -- ) {
+		const obj = rigidBodies[ i ];
+		if ( obj && obj.userData && obj.userData.isBall ) {
+			removeRigidBodyObject( obj );
+		}
+	}
+
+	if ( rectMesh ) {
+		try {
+			if ( rectMesh.geometry ) rectMesh.geometry.dispose();
+			if ( rectMesh.material ) rectMesh.material.dispose();
+		} catch (err) { console.log( err ) };
+		scene.remove( rectMesh );
+		rectMesh = null;
+	}
+
+	if ( groundMesh ) {
+		removeRigidBodyObject ( groundMesh );
+		groundMesh = null;
+		groundBounds = null;
+	}
+
+	createObjects();
+
+	if ( controls && camera ) {
+		controls.target.set( 0, holeInfo.topY, 0 );
+		controls.update();
+	}
 }
 
 function removeRigidBodyObject( obj ) {
@@ -672,7 +805,7 @@ function removeRigidBodyObject( obj ) {
     if ( body ) {
         const ms = body.getMotionState && body.getMotionState();
         if ( ms ) Ammo.destroy( ms );
-        try { Ammo.destroy( body ); } catch ( e ) { /* ignore */ }
+        try { Ammo.destroy( body ); } catch ( err ) { console.log( err ) }
     }
 }
 function checkOutOfBounds() {
@@ -711,7 +844,11 @@ function render() {
 	updatePhysics( deltaTime );
 
 	processClick();
-
+    if ( rectMesh ) {
+        const t = clock.getElapsedTime();
+        const bob = rectMesh.userData.bob || { amplitude: 0.25, speed: 2.0 };
+        rectMesh.position.y = rectMesh.userData.baseY + Math.sin( t * bob.speed ) * bob.amplitude;
+    }
 	renderer.render( scene, camera );
 
 }
@@ -766,25 +903,43 @@ function updatePhysics( deltaTime ) {
 		geometry.attributes.normal.needsUpdate = true;
 
 	}
+    for ( let i = 0, il = rigidBodies.length; i < il; i ++ ) {
+        const objThree = rigidBodies[ i ];
+        const body = objThree.userData.physicsBody;
+        if ( !body ) continue;
 
-	for ( let i = 0, il = rigidBodies.length; i < il; i ++ ) {
+        const ms = body.getMotionState && body.getMotionState();
+        if ( ms ) {
+            ms.getWorldTransform( transformAux1 );
+            const p = transformAux1.getOrigin();
+            const q = transformAux1.getRotation();
+            objThree.position.set( p.x(), p.y(), p.z() );
+            objThree.quaternion.set( q.x(), q.y(), q.z(), q.w() );
+        }
+    }
 
-		const objThree = rigidBodies[ i ];
-		const objPhys = objThree.userData.physicsBody;
-		const ms = objPhys.getMotionState();
-		if ( ms ) {
+    for ( let i = rigidBodies.length - 1; i >= 0; i-- ) {
+        const obj = rigidBodies[ i ];
+        if ( !obj.userData.isBall ) continue;
 
-			ms.getWorldTransform( transformAux1 );
-			const p = transformAux1.getOrigin();
-			const q = transformAux1.getRotation();
-			objThree.position.set( p.x(), p.y(), p.z() );
-			objThree.quaternion.set( q.x(), q.y(), q.z(), q.w() );
+        const body = obj.userData.physicsBody;
+        const lv = body.getLinearVelocity();
+        const av = body.getAngularVelocity && body.getAngularVelocity();
+        const speed2 = lv.x()*lv.x() + lv.y()*lv.y() + lv.z()*lv.z();
+        const aspeed2 = av ? (av.x()*av.x() + av.y()*av.y() + av.z()*av.z()) : 0;
 
-		}
+        if ( speed2 < 0.005 && aspeed2 < 0.005 ) {
+            obj.userData.stillTime = (obj.userData.stillTime || 0) + deltaTime;
+        } else {
+            obj.userData.stillTime = 0;
+        }
 
-	}
-	
-	checkOutOfBounds();
-	checkBallInHole();
+        if ( obj.userData.stillTime > 2.0 ) {
+            removeRigidBodyObject( obj );
+        }
+    }
+
+    checkOutOfBounds();
+    checkBallInHole();
 
 }

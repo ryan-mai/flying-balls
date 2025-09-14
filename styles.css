@@ -1,0 +1,38 @@
+body {
+	font-family: 'Roboto Mono', monospace;
+	margin: 0px;
+	color: #fff;
+  height: 100%;
+
+}
+#info {
+    position: fixed;
+    top: 64px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    background: rgba(0,0,0,0);
+    color: rgb(35, 35, 35);
+    padding: 8px 14px;
+    border-radius: 6px;
+    text-align: center;
+    font-family: Roboto, sans-serif;
+    font-size: large;
+    pointer-events: auto;
+}
+
+#score {
+    position: fixed;
+    bottom: 64px;
+    left: 10%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    background: rgba(0,0,0,0);
+    color: rgb(255, 255, 255);
+    padding: 8px 14px;
+    border-radius: 6px;
+    text-align: center;
+    font-family: Roboto, sans-serif;
+    font-size: x-large;
+    pointer-events: auto;
+}
