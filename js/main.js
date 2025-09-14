@@ -32,6 +32,8 @@ const params = {
 	angle: 0,
 	elevation: 5
 }
+let courseParams;
+let isReset = false;
 
 // Physics variables
 const gravityConstant = - 9.8;
@@ -344,14 +346,14 @@ function createObjects() {
     playerFolder.add( params, 'elevation', -180, 180, 1 );
 
     const courseFolder = gui.addFolder( 'Course' );
-	    const courseParams = {
+	courseParams = {
         count: 25,
         minLen: 2,
         maxLen: 8,
         height: 1,
         depth: 0.3,
         edgePad: 0.5,
-        holeClear: 1.0,
+        holeClear: 2.0,
         centerClear: 1.5
     };
     courseFolder.add( courseParams, 'count', 1, 150, 1 );
@@ -364,7 +366,7 @@ function createObjects() {
     courseFolder.add( courseParams, 'centerClear', 1, 3, 0.05 );
     courseFolder.add( { random: () => { clearWalls(); addRandomWalls( courseParams.count, courseParams ); } }, 'random' ).name( 'Generate random obstacles' );
     courseFolder.add( { clear: clearWalls }, 'clear' ).name( 'Clear obstacles' )
-
+	addRandomWalls( courseParams.count, courseParams );
 }
 
 function addRandomWalls( count = 10, opts = {} ) {
@@ -720,6 +722,7 @@ function checkBallInHole() {
 }
 
 function onBallInHole( ball ) {
+	if ( isReset ) return;
 	score += 1;
 	console.log(`Ball ${ball.id} is in the hole! YAY!! > ${score}`);
 	const scoreDiv = document.getElementById('score')
@@ -746,7 +749,10 @@ function onBallInHole( ball ) {
 }
 
 function resetGame() {
+	if ( isReset ) return;
+	isReset = true;
 	clearWalls();
+	addRandomWalls( courseParams.count, courseParams );
 	for ( let i = rigidBodies.length - 1; i >= 0; i -- ) {
 		const obj = rigidBodies[ i ];
 		if ( obj && obj.userData && obj.userData.isBall ) {
@@ -775,6 +781,8 @@ function resetGame() {
 		controls.target.set( 0, holeInfo.topY, 0 );
 		controls.update();
 	}
+
+	isReset = false;
 }
 
 function removeRigidBodyObject( obj ) {
